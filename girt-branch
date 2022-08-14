@@ -1,0 +1,140 @@
+#!/bin/dash
+
+
+# Enacts the exit status for girt-branch, that the subfunctions may call to 
+# terminate this script early.
+trap "exit 1" TERM
+export TOP_PID=$$
+
+# This sub-script initialises the branches if there were none to begin with. It 
+# creates the master branch and assigns it to be the current branch.
+initialise_branches() {
+    mkdir ./.girt/branches
+    for file in ./.girt/repository/*
+    do
+        if echo "$file" | grep -E '/.girt/' >/dev/null
+        then
+            echo "$file" | cut -d "/" -f4 >>./.girt/branches/master
+            >./.girt/branches/.curr_master
+        fi
+    done
+}
+
+
+# This sub-script deletes a branch of choosing. It first checks that the branch
+# is valid for deletion.
+delete_branch() {
+    for file in "$@"
+    do 
+        # master branch can not be deleted
+        if echo $file | grep -E '^master$' >/dev/null
+        then
+            echo ""$0": error: can not delete branch 'master'" 
+            exit 1
+        elif test -f ./.girt/branches/"$file" 
+        then 
+            rm ./.girt/branches/"$file"
+            echo "Deleted branch '$file'"
+        elif echo "$file" | grep -v -E '\-d' >/dev/null
+        then 
+            echo ""$0": error: branch '"$file"' doesn't exist"
+            exit 1
+        fi
+    done
+}
+
+
+# This sub-script is used to display all of the current active branches.
+show_branches() {
+    for file in ./.girt/branches/*
+    do
+        echo $file | cut -d "/" -f4 
+    done 
+}
+
+
+# This sub-script is called to create new branches for the repository. It 
+# first checks that the given name is a valid name for the creation.
+create_branches() {
+    for file in "$@"
+    do 
+        if test -f ./.girt/branches/"$file"
+        then
+            echo ""$0": error: branch '$file' already exists" 
+            exit 1
+        elif ls -a ./.girt/branches | grep -E -q '^.curr'
+        then
+            currBranch="$(ls -a ./.girt/branches | 
+                          grep -E '^.curr' | cut -d "_" -f2)"
+            > ./.girt/branches/"$file" 
+            cp ./.girt/branches/"$currBranch" ./.girt/branches/"$file"
+        else 
+            > ./.girt/branches/"$file" 
+            cp ./.girt/branches/master ./.girt/branches/"$file"
+        fi 
+    done 
+}
+
+
+# This sub-script whether the commits in the current branch (to be deleted)
+# exist in other branches. If not, then this sub-script terminates the program
+# to protect work from being deleted.
+check_commit() {
+    # loop thought all branches given in the command line
+    for argumentBranch in "$@"
+    do  
+        found=0
+        # check that argument is not '-d' and argument 
+        # exists in branches folder
+        if test -f ./.girt/branches/"$argumentBranch" && 
+           test "$argumentBranch" != "-d" 
+        then
+            lastCommit="$(cat ./.girt/branches/"$argumentBranch" | 
+                          tail -n 1)" >/dev/null
+            # loops through all of the branches inside the branches folder 
+            for branchPath in ./.girt/branches/*
+            do  
+                branchName="$(basename "$branchPath")"
+                # tests if the commit is found within examined branch
+                if test "$branchName" != "$argumentBranch" && 
+                   cat "$branchPath" | grep -q -E ''$lastCommit'' 
+                then
+                    found=1
+                fi
+            done
+            # program is killed if the commit was not found in any other 
+            # branches apart from its own 
+            if test $found -ne 1 
+            then
+                echo ""$0": error: branch '$argumentBranch' has unmerged changes"
+                kill -s TERM $TOP_PID
+            fi
+        fi
+    done
+}
+
+
+# The 'main function'
+# It first performs the necessary error checking then calls the relevent 
+# sub-script depending on the inputs given by the user.
+argument="$*"
+if test ! -d ./.girt/repository/commit0
+then 
+    echo ""$0": error: this command can not be run until after the first commit"
+    exit 1
+elif test ! -d ./.girt/branches
+then
+    initialise_branches
+fi
+
+if test $# -eq 0
+then
+    show_branches
+elif echo "$argument" | grep -E '\-d' >/dev/null
+then 
+    check_commit "$@"
+    delete_branch "$@"
+else
+    create_branches "$@"
+fi
+

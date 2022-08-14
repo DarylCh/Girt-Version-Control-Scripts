@@ -1,0 +1,99 @@
+#!/bin/dash
+
+# This sub-script checks that the files in the working directory dont have 
+# changes that would be overwritten when changing into another branch. If such
+# changes exist, the function terminates girt-checkout so that the files are 
+# not lost.
+# Command line arguments are:
+# $1 - New Commit
+# $2 - Current Commit
+check_copy() {
+    errorFound=0
+    for file in *
+    do
+        # check if file exists in the current commit
+        if test -f ./.girt/repository/"$2"/"$file" && test "$1" != "$2"  
+        then
+            # check if working directory file and commit file are different
+            if ! cmp -s "$file" ./.girt/repository/"$2"/"$file" 
+            then
+                if test "$errorFound" -ne 1
+                then
+                    echo ""$0": error: Your changes to the following files would be overwritten by checkout:"
+                    echo "$file"
+                    errorFound=1
+                else
+                    echo "$file"
+                fi
+            fi
+        # check if file exists in the target commit
+        elif test -f ./.girt/repository/"$1"/"$file" && test "$1" != "$2"   
+        then
+            # check if working directory file and commit file are different
+            if ! cmp -s "$file" ./.girt/repository/"$1"/"$file" 
+            then
+                if test "$errorFound" -ne 1
+                then
+                    echo ""$0": error: Your changes to the following files would be overwritten by checkout:"
+                    echo "$file"
+                    errorFound=1
+                else
+                    echo "$file"
+                fi
+            fi
+        fi
+    done
+    # script will exit if an error is found
+    if test $errorFound -eq 1
+    then
+        exit 1
+    fi
+}
+
+# This sub-script executes the process of copying files from the commit of the 
+# target branch into the working repository and the index.
+# Command line arguments are: 
+# $1 - New Commit to be switched to
+# $2 - Current Commit 
+copy_commit() {
+    cp -a ./.girt/repository/"$1"/. .
+    cp -a ./.girt/repository/"$1"/. ./.girt/index/
+    for file in ./.girt/index/*
+    do
+        fileName="$(echo $file | cut -d "/" -f4)"
+        # Check if file exists in old commit only
+        if test ! -f ./.girt/repository/"$1"/"$fileName" && 
+           test -f ./.girt/repository/"$2"/"$fileName"
+        then
+            rm -f ./.girt/index/"$fileName"
+            rm -f ./"$fileName" 
+        fi
+    done 
+}
+
+# 'Main' function
+# Performs the error testing for the script and establishes the new and 
+# old commits. It calls the other sub functions to perform the checkout 
+# function.
+
+currFile="$(ls -a ./.girt/branches | grep -E '.curr')"
+currName="$(echo $currFile | cut -d "_" -f2)"
+oldCommit="$(cat ./.girt/branches/"$currName" | tail -n 1)" 2> /dev/null
+newCommit="$(cat ./.girt/branches/"$1" | tail -n 1)" 2> /dev/null
+check_copy "$newCommit" "$oldCommit"
+
+if test $# -eq 1 && test -f ./.girt/branches/"$1" && 
+   test ! -f ./.girt/branches/.curr_"$1"
+then
+    mv ./.girt/branches/"$currFile" ./.girt/branches/.curr_"$1"
+    if test "$newCommit" != "$oldCommit" 
+    then
+        copy_commit "$newCommit" "$oldCommit"
+    fi
+    echo "Switched to branch '$1'"
+elif test ! -f ./.girt/branches/"$1"
+then   
+    echo "$0: error: unknown branch '$1'"
+else
+    echo "$0: Usage : < branch >"
+fi

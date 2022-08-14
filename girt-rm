@@ -1,0 +1,120 @@
+#!/bin/dash 
+
+# This sub-script checks that the file is able to be removed. Uncommited work 
+# can not be removed.
+check_file() {
+    # grabs the 
+    commitNum=$(cat ./.girt/repository/.log.txt | tail -n 1 | cut -d " " -f1)
+    for files in "$@"
+    do 
+        if echo "$files" | grep -E '\-\-force|\-\-cached' >/dev/null
+        then
+            :
+        # checks that the file exists in the index and commit
+        elif test ! -f ./.girt/repository/commit"$commitNum"/"$files" && 
+             test ! -f ./.girt/index/"$files"
+        then    
+            echo ""$0": error: '$files' is not in the girt repository"  
+            exit 1 
+        # checks that the file in the current working and index are the same
+        elif cmp -s ./"$files" ./.girt/index/"$files" >/dev/null
+        then
+            # if the working and index files are the same, but the commit is 
+            # different then there is unsaved work that must be saved first.
+            if ! cmp -s ./.girt/index/"$files" \
+                 ./.girt/repository/commit"$commitNum"/"$files" && 
+                 test $cached -ne 1 >/dev/null
+            then    
+                echo ""$0": error: '$files' has staged changes in the index"
+                exit 1
+            fi 
+        # checks taht the index and commit files are identical
+        elif cmp -s ./.girt/index/"$files" \
+             ./.girt/repository/commit"$commitNum"/"$files" >/dev/null
+        then
+            if test $cached -ne 1 
+            then 
+                echo ""$0": error: '$files' in the repository is different to the working file" 
+                exit 1     
+            fi
+        else 
+            echo ""$0": error: '$files' in index is different to both to the working file and the repository"
+            exit 1                  
+        fi 
+    done 
+}
+
+
+# This sub-script removes the file from the index. File is also removed from the
+# current directory if '--cached' is not activated.
+# Command line arguments are:
+# $1 - File to be removed
+remove_index() {
+    if test -f ./.girt/index/"$1" 
+    then
+        rm -f ./.girt/index/"$1" 
+        if test $cached -ne 1
+        then
+            remove_current "$1"
+        fi
+    fi 
+}
+
+
+# This sub-script removes the file from the current working directory.
+# Command line arguments are:
+# $1 - File to be removed
+remove_current() {
+    if test -f ./"$1"
+    then  
+        rm -f ./"$1" 
+    fi
+}
+
+
+# This sub-script checks the parameters from the command line to determine if
+# the 'forced' or 'cached' modes need activation.
+# Command line arguments are:
+# $1 - Terminal Command Line Input
+check_parameters() {
+    if echo $1 | grep -E "\-\-force" >/dev/null
+    then
+        force=1
+    fi
+    if echo $1 | grep -E "\-\-cached" >/dev/null
+    then
+        cached=1
+    fi
+
+}
+
+
+# The 'main' function 
+# This function performs the initial error checking and checks the argument 
+# parameters. It then calls the relevent functions.
+if test $# -gt 0
+then    
+    force=0
+    cached=0
+    fileCheck=0
+    check_parameters "$*"
+    if test $force -ne 1
+    then 
+        check_file "$@"
+    fi
+    if test $fileCheck -ne 1 
+    then
+        for file in $@
+        do
+            if test -f ./.girt/index/"$file"
+            then 
+                remove_index "$file"
+            elif ! echo $file | grep -E '\-\-force|\-\-cached' >/dev/null
+            then 
+                echo ""$0": error: '$file' is not in the girt repository"
+            fi
+        done
+    fi
+else 
+echo "$0: Usage: "
+fi

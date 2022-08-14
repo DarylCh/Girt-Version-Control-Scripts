@@ -1,0 +1,171 @@
+#!/bin/dash 
+
+## status paths messages
+status1="file changed, changes staged for commit"
+status2="file changed, different changes staged for commit"
+status3="file changed, changes not staged for commit"
+status4="file deleted"
+status5="deleted"
+status6="same as repo"
+status7="added to index"
+status8="untracked"
+status9="added to index, file deleted"
+status10="added to index, file changed"
+tempPath="./.girt/temp"
+
+
+# This sub-script returns a 1 if the two arguments are the same, 0 otherwise
+# Command line agruments are: 
+# $1 - First Path
+# $2 - Second Path
+cmp_path() {
+    if test -f $1 && test -f $2
+    then
+        if cmp -s $1 $2
+        then
+            echo 1
+        else
+            echo 0
+        fi
+    else
+        echo 0
+    fi
+}
+
+
+# This sub-script takes in the list of files made in the 'main' and determines 
+# the status of said files based on their location and contents. Echos the 
+# relevent string status to the terminal.
+check_main() {
+    for fileName in "$@"
+    do
+        # tests if filename is a valid one
+        if ! echo $fileName | grep -E 'log|\*' >/dev/null
+        then
+            path="./"$fileName""
+            pathInd="./.girt/index/"$fileName""
+            pathRep="./.girt/repository/commit"$commitNum"/$fileName"
+            cmpPaIn=$(cmp_path $path $pathInd)
+            cmpInRe=$(cmp_path $pathInd $pathRep)
+            
+            # marks the .girt scripts as untracked
+            if echo "$fileName" | grep -E 'girt' >/dev/null
+            then
+                echo ""$fileName" - $status8"
+            # file is in path but not in index
+            elif test -f "$path" && test ! -f "$pathInd" 
+            then
+                echo ""$fileName" - "$status8""
+            # file is not in path nor index
+            elif test ! -f "$path" && test ! -f "$pathInd"
+            then 
+                echo ""$fileName" - "$status5""
+            # file is not in path but identical in the index and rep
+            elif test ! -f $path && test $cmpInRe -eq 1 >/dev/null
+            then
+                echo ""$fileName" - "$status4"" 
+            # file exists in all 3 areas and is identical
+            elif test $cmpPaIn -eq 1 && test $cmpInRe -eq 1 >/dev/null
+            then 
+                echo ""$fileName" - "$status6""
+            # file exists and is identical between path and index
+            elif test -f "$pathInd" && test ! -f "$pathRep" && 
+                 test $cmpPaIn -eq 1 >/dev/null
+            then
+                echo ""$fileName" - "$status7""
+            # file exists in index but neither in working nor rep
+            elif test -f "$pathInd" && test ! -f "$path" && 
+                 test ! -f "$pathRep" 
+            then
+                echo ""$fileName" - "$status9""
+            # file exists but is different between path and index
+            elif test -f "$pathInd" && test ! -f "$pathRep" && 
+                 test $cmpPaIn -eq 0 >/dev/null
+            then
+                echo ""$fileName" - "$status10""
+            # path and index same, repository file different
+            elif test "$cmpPaIn" -eq 1 && test "$cmpInRe" -eq 0 >/dev/null
+            then
+                echo ""$fileName" - "$status1""
+            # path index and rep all have unique changes
+            elif test $cmpPaIn -eq 0 && test $cmpInRe -eq 0
+            then
+                echo ""$fileName" - "$status2""
+            # path different to identical index and rep files
+            elif test $cmpPaIn -eq 0 && test $cmpInRe -eq 1 >/dev/null
+            then
+                echo ""$fileName" - "$status3""
+            fi
+        fi
+    done 
+
+}
+
+
+# This sub-script finds all of the files in the given directory and adds them 
+# to a file called .doc.txt. The files are arranged in order.
+scan_files() {
+    for file in $@
+    do
+        # Collects filenames from the index folder
+        if echo "$file" | grep -E './.girt/index/' >/dev/null 
+        then
+            fileName="$(basename $file)" 
+            # Filters out invalid entries
+            if test "$fileName" != "*" && test "$fileName" != ""
+            then 
+                echo $fileName >> ./.girt/temp/.doc.txt
+            fi
+        # Collects filenames from the commit folder
+        elif echo "$file" | 
+             grep -E './.girt/repository/commit'$commitNum'' >/dev/null
+        then
+            fileName="$(basename $file)" 
+            if test "$fileName" != "*" && test "$fileName" != ""
+            then 
+                echo "$fileName" >> ./.girt/temp/.doc.txt
+            fi
+        # Filters invalid entries out from the current directory
+        elif test "$file" != "*" && test "$file" != "*"
+        then 
+            echo "$file" >> ./.girt/temp/.doc.txt  
+        fi
+    done
+    cat ./.girt/temp/.doc.txt | sort | 
+        uniq | sed 's/\*//g'> ./.girt/temp/.temp.txt
+    cat ./.girt/temp/.temp.txt > ./.girt/temp/.doc.txt
+}
+
+
+# The 'main' function
+# Sets up the parameters needed to scan all of the files from the relevent 
+# directories then passes a document of the found files to the 
+# check_main function.
+mkdir .girt/temp
+> ./.girt/temp/.doc.txt
+scan_files *
+scan_files ./.girt/index/* 
+if test -d ./.girt/repository
+then
+    # checks if the styling 
+    if test -d ./.girt/branches
+    then
+        currBranch="$(ls -a ./.girt/branches | grep -E '.curr'| 
+                      cut -d "_" -f2)"
+        commitNum=$(cat ./.girt/branches/"$currBranch" | 
+                    tail -n 1 | sed 's/commit//g')
+    else 
+        commitNum=$(ls ./.girt/repository | sort -V | 
+                    tail -n 1 | sed 's/commit//g')
+    fi 
+    scan_files ./.girt/repository/commit$commitNum/*
+fi
+
+cat ./.girt/temp/.doc.txt | sort -V | uniq > ./.girt/temp/doclist.txt
+check_main $(cat ./.girt/temp/doclist.txt)
+# Removes the files once the command is done
+rm -r ./.girt/temp 
+rm -f .temp.txt
+rm -f .doc.txt
+
+

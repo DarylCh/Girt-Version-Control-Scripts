@@ -1,0 +1,259 @@
+#!/bin/dash
+# This script incorporates the girt-merge function for .girt. It first 
+# checks that a merge is possible, then decides wether to do a 
+# fast-forward or three-way merge.
+
+# Allows sub-functions to exit the program immediately
+trap "exit 1" TERM
+export TOP_PID=$$
+
+# This sub-script is called when a branch is input for merge. 
+# Command line arguments are:
+# $1 - Target Branch  
+# $2 - Merge Message
+merge_branch() {
+    currBranch="$(ls -a ./.girt/branches | grep -E '.curr' | 
+                  cut -d "_" -f2)" >/dev/null
+    currCommit="$(cat ./.girt/branches/"$currBranch" | 
+                  tail -n 1)" >/dev/null
+    mergeCommit="$(cat ./.girt/branches/"$1" | tail -n 1)" >/dev/null
+
+    if test "$currCommit" != "$mergeCommit" 
+    then
+        merge_commit "$currBranch" "$1" "$currCommit" "$mergeCommit" "$2"
+    fi    
+}
+
+
+# This sub-script is called when the a commit is input for merge. 
+# Command line arguments are:
+# $1 - Current Branch  
+# $2 - Target Branch 
+# $3 - Current Commit
+# $4 - Merge Commit
+# $5 - Message
+merge_commit() {
+    unique=1
+
+    if grep -vf ./.girt/branches/"$2" ./.girt/branches/"$1" >/dev/null
+    then 
+        three_way "$1" "$2" "$3" "$4" "$5"
+    else
+        fast_forward "$currBranch" "$2"
+    fi
+}
+
+
+# This sub-script is called to find the common ancestor branch between 
+# the current and target branch. It returns the ancestor as a string.
+# Command line arguments are:
+# $1 - Current Commit
+# $2 - Target Commit
+find_ancestor() {
+    string=""
+    i=0
+    commit="commit$i"
+    if test -f ./.girt/branches/"$1" && test -f ./.girt/branches/"$2"
+    then
+        # loops through both branch files to find the largest ancestor
+        while test -d ./.girt/repository/"$commit"
+        do
+            if cat ./.girt/branches/"$1" | grep -q -E -o '^'$commit'$' && 
+               cat ./.girt/branches/"$2" | grep -q -E '^'$commit'$'
+            then 
+                string="$commit"
+            fi
+            i=`expr $i + 1`
+            commit="commit$i"
+        done
+    fi
+    echo "$string"
+}
+
+
+# This sub-script performs the fast-forward merge from the current branch
+# to the target branch. 
+# Command line arguments are:
+# $1 - Current Commit
+# $2 - Target Commit
+fast_forward() {
+    cp ./.girt/branches/"$2" ./.girt/branches/"$1"
+    commitName="$(cat ./.girt/branches/"$2" | tail -n 1)"
+    cp -a ./.girt/repository/"$commitName"/. ./.girt/index
+    cp -a ./.girt/index/. . 
+    echo "Fast-forward: no commit created"
+}
+
+
+# This sub-script is called by the three_way function and compares the 
+# differences for any files that exist in the ancestor, target and 
+# current commits. Based on the comparsions, it decides what change will 
+# be added for commit to the new commit.
+# Command line arguements are:
+# $1 - Current Commit
+# $2 - Target Commit
+# $3 - Ancestor Commit
+# $4 - File Name
+# $5 - New Commit 
+compare_files() {
+    
+    lineCurr="$(sed -n ${index}p ./.girt/repository/$1/$4)"
+    lineTarg="$(sed -n ${index}p ./.girt/repository/$2/$4)"
+    lineAnc="$(sed -n ${index}p ./.girt/repository/$3/$4)"
+
+    currFile="./.girt/repository/"$1"/"$4""
+    targFile="./.girt/repository/"$2"/"$4""
+    ancFile="./.girt/repository/"$3"/"$4""
+    # all files are the same
+    if cmp -s "$ancFile" "$currFile" && 
+       cmp -s "$ancFile" "$targFile"
+    then
+        cp "$ancFile" ./.girt/index 
+    # target commit file different
+    elif cmp -s "$ancFile" "$currFile" && 
+         ! cmp -s "$ancFile" "$targFile"
+    then
+        cp "$targFile" ./.girt/index
+    # ancestor commit file different
+    elif cmp -s "$ancFile" "$targFile" && 
+         ! cmp -s "$ancFile" "$currFile"
+    then
+        cp "$currFile" ./.girt/index
+    # all files are different
+    else 
+        echo "$0: error: can not merge"
+        kill -s TERM $TOP_PID
+        rm -rf ./.girt/repository/commit$5
+    fi
+
+
+}
+
+
+# This sub-script finds all the files that exist in the current, target
+# and ancestory commit and puts them in a document to be used in the 
+# three_way function
+# Command line arguments are:
+# $1 - Current Branch 
+# $2 - Target Branch
+all_files() {
+    currCommit="$(cat ./.girt/branches/"$1" | tail -n 1)"
+    targCommit="$(cat ./.girt/branches/"$2" | tail -n 1)"
+
+    ls ./.girt/repository/"$currCommit" >>./.girt/branches/.allfiles
+    ls ./.girt/repository/"$targCommit" >>./.girt/branches/.allfiles  
+    ls ./.girt/repository/"$ancestor" >>./.girt/branches/.allfiles 
+    cat ./.girt/branches/.allfiles | sort | 
+        uniq | sort -o ./.girt/branches/.allfiles 
+}
+
+
+# This subscript forms the basis for the three-way merge for girt-merge.
+# It compares the files between the ancestor, current and target commits
+# then decides what files must be copied into the new commit based on
+# a number of conditions. 
+# Command line arguments are:
+# $1 - Current Branch
+# $2 - Target Branch
+# $3 - Current Commit 
+# $4 - Target Commit
+# $5 - Commit Message
+three_way() {
+
+    currCommit="$(cat ./.girt/branches/"$1" | tail -n 1)"
+    targCommit="$(cat ./.girt/branches/"$2" | tail -n 1)"
+
+    # Calls subscript to find ancestor branch 
+    ancestor="$(find_ancestor "$1" "$2")"
+    if test $ancestor = "" 
+    then
+        echo error ancestor?
+        exit 1
+    fi
+    
+    # All file names are placed in the .allfiles document
+    >./.girt/branches/.allfiles
+    all_files "$1" "$2" "$ancestor"
+    allFiles="$(cat ./.girt/branches/.allfiles | tr '\n' ' ')"
+
+    for file in $allFiles
+    do
+        # check if file is not in the ancestor
+        if test ! -f ./.girt/repository/"$ancestor"/"$file"
+        then
+            # check if file exists in both current and target
+            if test -f ./.girt/repository/"$currCommit"/"$file" && 
+               test -f ./.girt/repository/"$targCommit"/"$file"
+            then
+                # ran out of time to check this situation with the 
+                # reference.
+                echo "unknown error 1"
+            # check if file is in the target commit
+            elif test -f ./.girt/repository/"$targCommit"/"$file"
+            then
+                cp ./.girt/repository/"$targCommit"/"$file" \
+                   ./.girt/index/"$file" 
+            # file must be in the current commit
+            else
+                cp ./.girt/repository/"$currCommit"/"$file" \
+                   ./.girt/index/"$file" 
+            fi 
+        # file is in the ancestor
+        else
+            # file exist in all three, files must be checked for 
+            # differences
+            if test -f ./.girt/repository/"$currCommit"/"$file" && 
+               test -f ./.girt/repository/"$targCommit"/"$file"
+            then
+                compare_files "$currCommit" "$targCommit" "$ancestor" "$file" 
+            # Another set of situations I had no time to check the 
+            # reference with
+            elif test -f ./.girt/repository/"$targCommit"/"$file"
+            then
+                echo 5 "unkown error 2"
+            else
+                echo 6 "unkown error 3"
+            fi
+        fi
+        
+    done
+
+    # Commit the new index to the new deposit and complete the branch
+    # list for the merged commit.
+    girt-commit -m "$5"
+    cp -a ./.girt/index/* .
+    cat ./.girt/branches/"$1" >> ./.girt/branches/.temp
+    cat ./.girt/branches/"$2" >> ./.girt/branches/.temp
+    cat ./.girt/branches/.temp | sort | uniq > ./.girt/branches/"$1"
+    rm -f ./.girt/branches/.temp
+}
+
+
+## The 'main' function. Checks that the inputs given are correct and 
+# passes them onto the relevent sub functions. If the inputs are wrong,
+# it returns the appropriate error message.
+
+if test ! -d ./.girt/branches
+then
+    echo ""$0": error: this command cannot be run until after the first commit"
+elif test "$3" = ""
+then 
+    echo ""$0": error: empty commit message"
+
+elif ! test -f ./.girt/branches/"$1"
+then 
+    echo ""$0": error: unknown branch '$1'"
+
+elif test $# -ne 3
+then
+    echo "usage: girt-merge <branch|commit> -m message"
+else
+    if echo "$1" | grep -E -q '^[0-9]+$' 
+    then
+        echo "$3"
+        merge_commit "$1" "$3"
+    else 
+        merge_branch "$1" "$3"
+    fi
+
+fi 

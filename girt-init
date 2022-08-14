@@ -1,0 +1,14 @@
+#!/bin/dash
+
+# This script initialises the .girt repository and 
+# creates the required subfolders.
+if test -d ".girt" 
+then
+    echo "girt-init: error: .girt already exists"
+    exit 1
+else
+    mkdir ".girt"
+    mkdir ".girt/repository"
+    mkdir ".girt/index"
+    echo "Initialized empty girt repository in .girt"  
+fi

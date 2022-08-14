@@ -1,0 +1,35 @@
+#!/bin/dash
+# This function displays the contents of the file in the specified commit. 
+# Error messages are returned if the commit does not exist of if the file
+# cannot be found
+if test $# -ne 1 
+then
+    echo ""$0": error: not enough inputs" 
+    exit 1
+
+elif echo "$1" | grep -E '^[0-9]+:' >/dev/null
+then
+    commitNum=$(echo $1 | cut -d ":" -f1)
+    fileName="$(echo $1 | cut -d ":" -f2)"
+    if test -f ./.girt/repository/commit$commitNum/$fileName 
+    then
+        cat .girt/repository/commit"$commitNum"/"$fileName"    
+    elif test -d "./.girt/repository/commit"$commitNum""
+    then
+        echo "girt-show: error: '$fileName' not found in commit $commitNum"
+        exit 1
+    else 
+        echo "girt-show: error: unknown commit '$commitNum'"
+        exit 1
+    fi
+
+else 
+    fileName=`(echo $1 | sed 's/://g')`
+    if test -f ./.girt/index/$fileName 
+    then
+        cat .girt/index/$fileName
+    else 
+        echo "girt-show: error: '$fileName' not found in index"
+        exit 1
+    fi
+fi

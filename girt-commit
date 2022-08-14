@@ -1,0 +1,111 @@
+#!/bin/dash
+# This sub-script creates a new commit and commits the new items to the 
+# directory. 
+commit_items() {
+    num=0
+    # determines the new commit number
+    determine_num $1
+    newfolder="commit"$num""
+    echo ""$num" "$1"" >> ./.girt/repository/.log.txt
+    mkdir .girt/repository/$newfolder
+    if test "$(ls -A ./.girt/index)" >/dev/null
+    then
+        cp ".girt/index/"* .girt/repository/$newfolder/       
+    fi
+    echo "Committed as commit "$num""
+    
+}
+
+# This sub-script determines the new commit number and returns its value. 
+determine_num() {
+    if test ! -d '.girt/repository/commit0' 
+    then 
+        num=0
+    else
+        commitNum=$(ls ./.girt/repository | sort -V | 
+                    grep -E -o '[0-9]*'| tail -n 1) 
+        num=`expr $commitNum + 1` 
+        check_changes
+    fi     
+}
+
+# This sub-script checks if one commit is a subset of another. If commit 'a' 
+# is a subset of commit 'b' and vice versa, then their contents are identical
+# Command-line arguments are:
+# $1 - First Commit
+# $2 - Second Commit
+check_subset() {
+    for file in "$1"/*
+    do
+        fileOnly=`(echo "$file" | cut -d "/" "$3")`
+        if ! cmp -s "$file" ""$2""$fileOnly"" && 
+           ! echo "$file" | grep -o '*' >/dev/null
+        then    
+            difference=`expr $difference + 1`  
+        fi
+    done
+}
+
+# This sub-script checks that the current index is different to the most recent
+# commit. If both of the directories contain exaclty the same files only, then
+# the program exits as there is nothing to commit.
+check_changes() {
+    
+    difference=0
+    check_subset "./.girt/repository/commit"$commitNum"" "./.girt/index/" "-f5"
+    check_subset "./.girt/index" "./.girt/repository/commit"$commitNum"/" "-f4"
+           
+    if test $difference -eq 0 
+    then
+        echo "nothing to commit"
+        exit 1
+    fi
+}
+
+# This sub-script copies items from the index to the working directory.
+add_items() {
+    for file in ./.girt/index/*
+    do
+        fileName=`(echo $file | cut -d "/" -f4)`
+        if test -f $fileName
+        then
+            cp ./$fileName $file
+        fi 
+    done
+}
+
+# The 'main' function
+# This function first initiliases the necessary folders and checks that the 
+# .girt folder exists in the directory. If it does, it calls the other 
+# sub-scripts to commit the files.
+# test folders exist
+
+if test ! -d ".girt"
+then
+    echo "girt-commit: error: girt repository directory .girt not found"
+    exit 1
+
+elif test ! -d '.girt/index' 
+then
+    mkdir .girt/index
+
+elif test ! -d '.girt/repository' 
+then 
+    mkdir .girt/repository
+fi
+
+# Once all folders initialised, the necessary sub-scripts are called
+if test $# -eq 2 && test $1 = "-m" >/dev/null
+then 
+    commit_items "$2"
+
+elif test $# -eq 3 && test $1 = "-a" && test $2 = "-m" >/dev/null
+then
+    add_items
+    commit_items "$3"
+fi 
+if test -d '.girt/branches'
+then
+    branch="$(ls -a ./.girt/branches | grep -E 'curr' | cut -d '_' -f2)"
+    echo "commit"$num"" >> ./.girt/branches/$branch
+fi

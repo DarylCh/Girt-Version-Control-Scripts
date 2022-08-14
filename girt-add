@@ -1,0 +1,38 @@
+#!/bin/dash
+
+# This script adds files to the .girt repository if the file name is valid 
+# and if the .girt repository exists.
+if test ! -d ".girt"
+then
+    echo "girt-add: error: girt repository directory .girt not found"
+    exit 1
+
+elif test ! -d '.girt/index' 
+then
+    echo "initialising index subdirectory..."
+    mkdir .girt/index
+fi
+
+for file in "$@"
+do  
+    if test -f "$file"
+    then 
+        # ignore files that are not alphanumeric   
+        if echo "$file" | grep -E -i '[^a-z0-9\.\-\_]+' >/dev/null
+        then 
+            :
+        else 
+            cp $file ./.girt/index/$file
+        fi 
+    # test if file is not in working but in index
+    elif test -f ./.girt/index/"$file"
+    then    
+        rm -d ./.girt/index/"$file"
+    # file has not been found
+    else 
+        echo "girt-add: error: can not open '$file'"
+        exit 1
+    fi
+done
+
+    

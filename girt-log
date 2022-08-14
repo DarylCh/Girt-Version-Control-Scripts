@@ -1,0 +1,39 @@
+#!/bin/dash
+
+# This sub-script is activated if branches have been made in the .girt 
+# repository. It reads only the commits that exist in the current branch.
+log_branches() {
+    >./.girt/branches/.temp.txt
+    curr="$(ls -a ./.girt/branches | grep -E '.curr' | cut -d "_" -f2)"
+    # Reads through each commit existant in the current branch
+    cat ./.girt/branches/"$curr" | while read line1
+    do  
+        num=$(echo "$line1" | grep -E -o '^commit[0-9]+$' | 
+              sed 's/commit//g') >/dev/null
+        # Reads each line in the .log file
+        cat ./.girt/repository/.log.txt | while read line2
+        do 
+            logNum=$(echo $line2 | cut -d ' ' -f1)
+            # Tests if the line matches the current commit in the branch loop
+            if test $num -eq $logNum
+            then
+                echo "$line2" >> ./.girt/branches/.temp.txt 
+            fi
+        done 
+    done
+    
+    cat ./.girt/branches/.temp.txt | sort | uniq | sort -nr 
+    rm -f ./.girt/branches/.temp.txt
+
+}
+
+# The 'main' function
+# Shows the log if no branches have been made, calls log_branches otherwise.
+if test -d ./.girt/branches
+then
+    log_branches
+else
+    cat .girt/repository/.log.txt | sort -nr
+fi
+
+
